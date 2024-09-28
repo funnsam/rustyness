@@ -1,7 +1,9 @@
 mod cart;
 mod cpu;
 
-#[derive(Debug)]
+#[cfg(test)]
+mod test;
+
 pub struct Nes<'a> {
     cpu: Cpu,
 
@@ -22,7 +24,7 @@ struct Cpu {
 }
 
 impl<'a> Nes<'a> {
-    pub fn new(cart: &'a mut dyn cart::Cartridge) -> Self {
+    pub fn new(cart: &'a mut dyn cart::Cartridge, start: Option<u16>) -> Self {
         let fffc = cart.load(0xfffc).unwrap();
         let fffd = cart.load(0xfffd).unwrap();
 
@@ -31,7 +33,7 @@ impl<'a> Nes<'a> {
                 a: 0,
                 x: 0,
                 y: 0,
-                pc: ((fffd as u16) << 8) | (fffc as u16),
+                pc: start.unwrap_or(((fffd as u16) << 8) | (fffc as u16)),
                 s: 0xfd,
                 p: 0x24,
             },
@@ -41,6 +43,11 @@ impl<'a> Nes<'a> {
 
             last_read: 0,
         }
+    }
+
+    pub fn step(&mut self) {
+        // TODO: handle cycle count things here
+        self.step_everything();
     }
 
     fn step_not_cpu(&mut self) {
