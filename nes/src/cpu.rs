@@ -143,18 +143,20 @@ impl Nes<'_> {
                 };
 
                 match a {
-                    0 => todo!("ora"),
-                    1 => todo!("and"),
-                    2 => todo!("eor"),
+                    0 => self.cpu.a |= opr,
+                    1 => self.cpu.a &= opr,
+                    2 => self.cpu.a ^= opr,
                     3 => todo!("adc"),
-                    5 => { // lda
-                        self.cpu.a = opr;
-                        self.set_n(self.cpu.a);
-                        self.set_z(self.cpu.a);
-                    },
-                    6 => todo!("cmp"),
+                    5 => self.cpu.a = opr,
                     7 => todo!("sbc"),
+
+                    6 => todo!("cmp"),
                     _ => unreachable!(),
+                }
+
+                if a != 6 {
+                    self.set_n(self.cpu.a);
+                    self.set_z(self.cpu.a);
                 }
             },
 
