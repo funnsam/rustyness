@@ -36,12 +36,12 @@ fn run_nestest() {
         let s = u8::from_str_radix(line.next().unwrap(), 16).unwrap();
         let cy = line.next().unwrap().parse::<usize>().unwrap();
 
-        assert_eq!(nes.cpu.pc, pc, "{cy}");
-        assert_eq!(nes.cpu.a, a, "{cy}");
-        assert_eq!(nes.cpu.x, x, "{cy}");
-        assert_eq!(nes.cpu.y, y, "{cy}");
-        assert_eq!(nes.cpu.p, p, "{cy}");
-        assert_eq!(nes.cpu.s, s, "{cy}");
+        assert_eq!(pc, nes.cpu.pc, "pc on cycle {cy}");
+        assert_eq!(a, nes.cpu.a, "a on cycle {cy}");
+        assert_eq!(x, nes.cpu.x, "x on cycle {cy}");
+        assert_eq!(y, nes.cpu.y, "y on cycle {cy}");
+        assert_eq!(p, nes.cpu.p, "p on cycle {cy}");
+        assert_eq!(s, nes.cpu.s, "s on cycle {cy}");
 
         nes.step();
     }
