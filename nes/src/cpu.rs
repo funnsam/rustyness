@@ -115,6 +115,7 @@ impl Nes<'_> {
             (1, 6, 0) => self.cpu.p |= 0x01, // sec
             (2, 6, 0) => self.cpu.p &= 0xfb, // cli
             (3, 6, 0) => self.cpu.p |= 0x04, // sei
+            (4, 6, 0) => set_val_nz!(self self.cpu.a, = self.cpu.y),
             (5, 6, 0) => self.cpu.p &= 0xbf, // clv
             (6, 6, 0) => self.cpu.p &= 0xf7, // cld
             (7, 6, 0) => self.cpu.p |= 0x08, // sed
