@@ -82,6 +82,12 @@ impl Nes<'_> {
         let c = inst & 3;
 
         match (a, b, c) {
+            // c = 0 nops
+            (0 | 2 | 3, 1, 0) => { addr_mode!(load self addr_of_zp); },
+            (0, 3, 0) => { addr_mode!(load self addr_of_abs); },
+            (0..=3 | 6 | 7, 5, 0) => { addr_mode!(load self addr_of_zp_x); },
+            (0, 7, 0) => { addr_mode!(load self addr_of_abs_x); },
+
             (1, 0, 0) => {
                 self.push_u16(self.cpu.pc + 1);
                 self.cpu.pc = self.addr_of_abs();
@@ -256,8 +262,8 @@ impl Nes<'_> {
                     1 => Some(self.addr_of_zp()),
                     2 => None,
                     3 => Some(self.addr_of_abs()),
-                    5 => Some(self.addr_of_zp_y()),
-                    7 => Some(self.addr_of_abs_y()),
+                    5 => Some(self.addr_of_zp_x()),
+                    7 => Some(self.addr_of_abs_x()),
                     _ => unreachable!(),
                 };
                 let m = addr.map_or(self.cpu.a, |addr| self.load(addr));

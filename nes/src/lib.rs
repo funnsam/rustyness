@@ -79,7 +79,7 @@ impl<'a> Nes<'a> {
     }
 
     fn store(&mut self, addr: u16, val: u8) {
-        self._store(addr, val);
+        _ = self._store(addr, val);
     }
 
     fn store_u16(&mut self, addr: u16, val: u16) {
