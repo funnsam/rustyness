@@ -11,6 +11,14 @@ macro_rules! addr_mode {
     }};
 }
 
+macro_rules! set_val_nz {
+    ($self: tt $dest: expr, $op: tt $val: expr) => {{
+        $dest $op $val;
+        $self.set_n($dest);
+        $self.set_z($dest);
+    }};
+}
+
 impl Nes<'_> {
     // aka (zp, x)
     fn addr_of_indx_indr(&mut self) -> u16 {
@@ -62,6 +70,15 @@ impl Nes<'_> {
         self.cpu.p |= ((v == 0) as u8) << 1;
     }
 
+    fn compare(&mut self, a: u8, b: u8) {
+        let res = a - b;
+
+        self.set_n(res);
+        self.set_z(res);
+        self.cpu.p &= 0xfe;
+        self.cpu.p |= (b <= a) as u8;
+    }
+
     pub(crate) fn step_everything(&mut self) {
         let inst = self.fetch_pc();
         let a = inst >> 5;
@@ -74,25 +91,26 @@ impl Nes<'_> {
                 self.cpu.pc = self.addr_of_abs();
             },
             (1, 1, 0) => { // bit zp
-                let m = self.cpu.a & addr_mode!(load self addr_of_zp);
+                let m = addr_mode!(load self addr_of_zp);
                 self.cpu.p &= 0x3f;
                 self.cpu.p |= m & 0xc0;
-                self.set_z(m);
+                self.set_z(self.cpu.a & m);
             },
-            (1, 2, 0) => { // bit abs
-                let m = self.cpu.a & addr_mode!(load self addr_of_abs);
+            (1, 3, 0) => { // bit abs
+                let m = addr_mode!(load self addr_of_abs);
                 self.cpu.p &= 0x3f;
                 self.cpu.p |= m & 0xc0;
-                self.set_z(m);
+                self.set_z(self.cpu.a & m);
             },
             (0, 2, 0) => self.push(self.cpu.p | 0x10),
-            (1, 2, 0) => self.cpu.p = self.pop(),
+            (1, 2, 0) => self.cpu.p = (self.pop() & 0xef) | 0x20,
             (2, 2, 0) => self.push(self.cpu.a),
-            (3, 2, 0) => {
-                self.cpu.a = self.pop();
-                self.set_n(self.cpu.a);
-                self.set_z(self.cpu.a);
-            },
+            (3, 2, 0) => set_val_nz!(self self.cpu.a, = self.pop()),
+            (4, 2, 0) => set_val_nz!(self self.cpu.y, -= 1),
+            (5, 2, 0) => set_val_nz!(self self.cpu.y, = self.cpu.a),
+            (6, 2, 0) => set_val_nz!(self self.cpu.y, += 1),
+            (7, 2, 0) => set_val_nz!(self self.cpu.x, += 1),
+
             (0, 6, 0) => self.cpu.p &= 0xfe, // clc
             (1, 6, 0) => self.cpu.p |= 0x01, // sec
             (2, 6, 0) => self.cpu.p &= 0xfb, // cli
@@ -119,6 +137,29 @@ impl Nes<'_> {
                 }
             },
             (3, 0, 0) => self.cpu.pc = self.pop_u16(),
+            (5, _, 0) => set_val_nz!(self self.cpu.y, = match b {
+                0 => self.fetch_pc(),
+                1 => addr_mode!(load self addr_of_zp),
+                2 => self.cpu.a,
+                3 => addr_mode!(load self addr_of_abs),
+                5 => addr_mode!(load self addr_of_zp_x),
+                7 => addr_mode!(load self addr_of_abs_x),
+                _ => unreachable!(),
+            }),
+            (6 | 7, _, 0) => {
+                let opr = match b {
+                    0 => self.fetch_pc(),
+                    1 => addr_mode!(load self addr_of_zp),
+                    3 => addr_mode!(load self addr_of_abs),
+                    5 => addr_mode!(load self addr_of_zp_x),
+                    7 => addr_mode!(load self addr_of_abs_x),
+                    _ => unreachable!(),
+                };
+
+                if b < 4 {
+                    self.compare(if a == 6 { self.cpu.y } else { self.cpu.x }, opr);
+                }
+            },
             (_, _, 0) => todo!("{a} {b} {c}"),
 
             (4, 2, 1) => { self.fetch_pc(); }, // nop imm
@@ -146,11 +187,25 @@ impl Nes<'_> {
                     0 => self.cpu.a |= opr,
                     1 => self.cpu.a &= opr,
                     2 => self.cpu.a ^= opr,
-                    3 => todo!("adc"),
                     5 => self.cpu.a = opr,
-                    7 => todo!("sbc"),
+                    6 => self.compare(self.cpu.a, opr),
+                    3 => {
+                        let (a, c1) = self.cpu.a.overflowing_add(opr);
+                        let (res, c2) = a.overflowing_add(self.cpu.p & 1);
 
-                    6 => todo!("cmp"),
+                        self.cpu.p &= 0xbe;
+                        self.cpu.p |= (c1 | c2) as u8;
+                        self.cpu.p |= ((!(self.cpu.a ^ opr) & (self.cpu.a ^ res) & 0x80) >> 1) as u8;
+                        self.cpu.a = res;
+                    },
+                    7 => {
+                        let res = self.cpu.a as i8 as i16 - opr as i8 as i16 - (1 - (self.cpu.p & 1)) as i16;
+
+                        self.cpu.p &= 0xbe;
+                        self.cpu.p |= (res as i8 >= 0) as u8;
+                        self.cpu.p |= ((res > 127 || res < -128) as u8) << 6;
+                        self.cpu.a = res as u8;
+                    },
                     _ => unreachable!(),
                 }
 
@@ -160,29 +215,20 @@ impl Nes<'_> {
                 }
             },
 
-            (5, _, 2) => {
-                self.cpu.x = match b {
-                    0 => self.fetch_pc(),
-                    1 => addr_mode!(load self addr_of_zp),
-                    2 => self.cpu.a,
-                    3 => addr_mode!(load self addr_of_abs),
-                    4 => todo!(),
-                    5 => addr_mode!(load self addr_of_zp_y),
-                    6 => todo!(),
-                    7 => addr_mode!(load self addr_of_abs_y),
-                    _ => unreachable!(),
-                };
-
-                self.set_n(self.cpu.x);
-                self.set_z(self.cpu.x);
-            },
-            (4, 2, 2) => {
-                self.cpu.a = self.cpu.x;
-                self.set_n(self.cpu.a);
-                self.set_z(self.cpu.a);
-            },
+            (5, _, 2) => set_val_nz!(self self.cpu.x, = match b {
+                0 => self.fetch_pc(),
+                1 => addr_mode!(load self addr_of_zp),
+                2 => self.cpu.a,
+                3 => addr_mode!(load self addr_of_abs),
+                4 => todo!(),
+                5 => addr_mode!(load self addr_of_zp_y),
+                6 => todo!(),
+                7 => addr_mode!(load self addr_of_abs_y),
+                _ => unreachable!(),
+            }),
+            (4, 2, 2) => set_val_nz!(self self.cpu.a, = self.cpu.x),
             (4, 1, 2) => addr_mode!(store self addr_of_zp self.cpu.x),
-            (6, 2, 2) => todo!("dex"),
+            (6, 2, 2) => set_val_nz!(self self.cpu.x, -= 1),
             (7, 2, 2) => {}, // 0xea nop
             (_, _, 2) => todo!("{a} {b} {c}"),
 
