@@ -1,13 +1,9 @@
 use super::*;
 
 macro_rules! addr_mode {
-    (load $self: tt $name: ident) => {{
+    ($call:tt $self: tt $name: ident $($rest:tt)*) => {{
         let addr = $self.$name();
-        $self.load(addr)
-    }};
-    (store $self: tt $name: ident $val: expr) => {{
-        let addr = $self.$name();
-        $self.store(addr, $val)
+        $self.$call(addr, $($rest)*)
     }};
 }
 
@@ -87,7 +83,7 @@ impl Nes<'_> {
 
         match (a, b, c) {
             (1, 0, 0) => {
-                self.push_u16(self.cpu.pc + 2);
+                self.push_u16(self.cpu.pc + 1);
                 self.cpu.pc = self.addr_of_abs();
             },
             (1, 1, 0) => { // bit zp
@@ -102,6 +98,7 @@ impl Nes<'_> {
                 self.cpu.p |= m & 0xc0;
                 self.set_z(self.cpu.a & m);
             },
+
             (0, 2, 0) => self.push(self.cpu.p | 0x10),
             (1, 2, 0) => self.cpu.p = (self.pop() & 0xef) | 0x20,
             (2, 2, 0) => self.push(self.cpu.a),
@@ -119,9 +116,13 @@ impl Nes<'_> {
             (5, 6, 0) => self.cpu.p &= 0xbf, // clv
             (6, 6, 0) => self.cpu.p &= 0xf7, // cld
             (7, 6, 0) => self.cpu.p |= 0x08, // sed
-            (2, 3, 0) => {
-                let addr = self.addr_of_abs();
-                self.cpu.pc = addr;
+
+            (2, 3, 0) => self.cpu.pc = self.addr_of_abs(),
+            (3, 3, 0) => {
+                let ind = self.addr_of_abs();
+                let l = self.load(ind);
+                let h = self.load((ind & 0xff00) | ((ind + 1) & 0xff));
+                self.cpu.pc = ((h as u16) << 8) | (l as u16);
             },
             (cond, 4, 0) => { // bxx
                 let bit = (self.cpu.p >> match cond >> 1 {
@@ -137,7 +138,17 @@ impl Nes<'_> {
                     self.cpu.pc += inc as u16;
                 }
             },
-            (3, 0, 0) => self.cpu.pc = self.pop_u16(),
+
+            (2, 0, 0) => { // rti
+                self.cpu.p = self.pop() | 0x20;
+                self.cpu.pc = self.pop_u16();
+            },
+            (3, 0, 0) => self.cpu.pc = self.pop_u16() + 1, // rts
+
+            (4, 1, 0) => addr_mode!(store self addr_of_zp self.cpu.y),
+            (4, 3, 0) => addr_mode!(store self addr_of_abs self.cpu.y),
+            (4, 5, 0) => addr_mode!(store self addr_of_zp_x self.cpu.y),
+
             (5, _, 0) => set_val_nz!(self self.cpu.y, = match b {
                 0 => self.fetch_pc(),
                 1 => addr_mode!(load self addr_of_zp),
@@ -161,7 +172,6 @@ impl Nes<'_> {
                     self.compare(if a == 6 { self.cpu.y } else { self.cpu.x }, opr);
                 }
             },
-            (_, _, 0) => todo!("{a} {b} {c}"),
 
             (4, 2, 1) => { self.fetch_pc(); }, // nop imm
             (4, 0, 1) => addr_mode!(store self addr_of_indx_indr self.cpu.a),
@@ -171,6 +181,7 @@ impl Nes<'_> {
             (4, 5, 1) => addr_mode!(store self addr_of_zp_x self.cpu.a),
             (4, 6, 1) => addr_mode!(store self addr_of_abs_y self.cpu.a),
             (4, 7, 1) => addr_mode!(store self addr_of_abs_x self.cpu.a),
+
             (_, _, 1) => {
                 let opr = match b {
                     0 => addr_mode!(load self addr_of_indx_indr),
@@ -216,25 +227,80 @@ impl Nes<'_> {
                 }
             },
 
+            (4 | 6 | 7, 0, 2) => { self.fetch_pc(); } // 2 byte nop
+            (4, 1, 2) => addr_mode!(store self addr_of_zp self.cpu.x),
+            (4, 2, 2) => set_val_nz!(self self.cpu.a, = self.cpu.x),
+            (4, 3, 2) => addr_mode!(store self addr_of_abs self.cpu.x),
+            (4, 5, 2) if a == 4 => addr_mode!(store self addr_of_zp_y self.cpu.x),
+            (4, 5, 2) => addr_mode!(store self addr_of_zp_x self.cpu.x),
+            (4, 6, 2) => self.cpu.s = self.cpu.x,
+            (4, 7, 2) => todo!("shx"),
+
             (5, _, 2) => set_val_nz!(self self.cpu.x, = match b {
                 0 => self.fetch_pc(),
                 1 => addr_mode!(load self addr_of_zp),
                 2 => self.cpu.a,
                 3 => addr_mode!(load self addr_of_abs),
-                4 => todo!(),
+                4 => todo!("jam"),
                 5 => addr_mode!(load self addr_of_zp_y),
-                6 => todo!(),
+                6 => self.cpu.s,
                 7 => addr_mode!(load self addr_of_abs_y),
                 _ => unreachable!(),
             }),
-            (4, 2, 2) => set_val_nz!(self self.cpu.a, = self.cpu.x),
-            (4, 1, 2) => addr_mode!(store self addr_of_zp self.cpu.x),
+
             (6, 2, 2) => set_val_nz!(self self.cpu.x, -= 1),
             (7, 2, 2) => {}, // 0xea nop
-            (_, _, 2) => todo!("{a} {b} {c}"),
+            (_, _, 2) => {
+                let addr = match b {
+                    0 | 4 => todo!("jam"),
+                    1 => Some(self.addr_of_zp()),
+                    2 => None,
+                    3 => Some(self.addr_of_abs()),
+                    5 => Some(self.addr_of_zp_y()),
+                    7 => Some(self.addr_of_abs_y()),
+                    _ => unreachable!(),
+                };
+                let m = addr.map_or(self.cpu.a, |addr| self.load(addr));
 
-            (_, _, 3) => todo!("{a} {b} {c}"),
-            _ => unreachable!(),
+                let v = match a {
+                    0 => {
+                        self.cpu.p &= 0xfe;
+                        self.cpu.p |= m >> 7;
+                        m << 1
+                    },
+                    1 => {
+                        let v = (m << 1) | (self.cpu.p & 1);
+                        self.cpu.p &= 0xfe;
+                        self.cpu.p |= m >> 7;
+                        v
+                    }
+                    2 => {
+                        self.cpu.p &= 0xfe;
+                        self.cpu.p |= m & 1;
+                        m >> 1
+                    },
+                    3 => {
+                        let v = (self.cpu.p << 7) | (m >> 1);
+                        self.cpu.p &= 0xfe;
+                        self.cpu.p |= m & 1;
+                        v
+                    },
+                    6 => m - 1,
+                    7 => m + 1,
+                    _ => unreachable!(),
+                };
+
+                self.set_n(v);
+                self.set_z(v);
+
+                if let Some(addr) = addr {
+                    self.store(addr, v);
+                } else {
+                    self.cpu.a = v;
+                }
+            },
+
+            _ => todo!("{a} {b} {c}"),
         }
     }
 
