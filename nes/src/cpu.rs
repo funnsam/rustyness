@@ -1,7 +1,7 @@
 use super::*;
 
 macro_rules! addr_mode {
-    ($call:tt $self: tt $name: ident $($rest:tt)*) => {{
+    ($call: tt $self: tt $name: ident $($rest: tt)*) => {{
         let addr = $self.$name();
         $self.$call(addr, $($rest)*)
     }};
@@ -18,6 +18,91 @@ macro_rules! set_val_nz {
         $dest $op $val;
         $self.set_n($dest);
         $self.set_z($dest);
+    }};
+}
+
+macro_rules! dcp {
+    ($self: tt $name: ident) => {{
+        let addr = $self.$name();
+        let m = $self.load(addr) - 1;
+        $self.store(addr, m);
+        $self.set_n($self.cpu.a - m);
+        $self.set_z($self.cpu.a - m);
+        $self.cpu.p &= 0xfe;
+        $self.cpu.p |= (m <= $self.cpu.a) as u8;
+    }};
+}
+
+macro_rules! isc {
+    ($self: tt $name: ident) => {{
+        let addr = $self.$name();
+        let m = $self.load(addr) + 1;
+        $self.store(addr, m);
+
+        let res = $self.cpu.a as i8 as i16 - m as i8 as i16 - (1 - ($self.cpu.p & 1)) as i16;
+        $self.cpu.p &= 0xbe;
+        $self.cpu.p |= ((res as i8) < 0) as u8;
+        $self.cpu.p |= ((res > 127 || res < -128) as u8) << 6;
+        $self.cpu.a = res as u8;
+        $self.set_n($self.cpu.a);
+        $self.set_z($self.cpu.a);
+    }};
+}
+
+macro_rules! rla {
+    ($self: tt $name: ident) => {{
+        let addr = $self.$name();
+        let m = $self.load(addr);
+        let v = (m << 1) | ($self.cpu.p & 1);
+        $self.cpu.p &= 0xfe;
+        $self.cpu.p |= m >> 7;
+        $self.store(addr, v);
+
+        set_val_nz!($self $self.cpu.a, &= v);
+    }};
+}
+
+macro_rules! rra {
+    ($self: tt $name: ident) => {{
+        let addr = $self.$name();
+        let m = $self.load(addr);
+        let v = ($self.cpu.p << 7) | (m >> 1);
+        $self.store(addr, v);
+
+        let (a, c1) = $self.cpu.a.overflowing_add(v);
+        let (res, c2) = a.overflowing_add(m & 1);
+
+        $self.cpu.p &= 0xbe;
+        $self.cpu.p |= (c1 | c2) as u8;
+        $self.cpu.p |= ((!($self.cpu.a ^ v) & ($self.cpu.a ^ res) & 0x80) >> 1) as u8;
+        set_val_nz!($self $self.cpu.a, = res);
+    }};
+}
+
+macro_rules! slo {
+    ($self: tt $name: ident) => {{
+        let addr = $self.$name();
+        let m = $self.load(addr);
+        $self.store(addr, m << 1);
+
+        $self.cpu.a |= m << 1;
+        $self.set_n($self.cpu.a);
+        $self.set_z($self.cpu.a);
+
+        $self.cpu.p &= 0xfe;
+        $self.cpu.p |= (m >> 7) | (($self.cpu.a == 0) as u8);
+    }};
+}
+
+macro_rules! sre {
+    ($self: tt $name: ident) => {{
+        let addr = $self.$name();
+        let m = $self.load(addr);
+        let v = m >> 1;
+        $self.store(addr, v);
+
+        set_val_nz!($self $self.cpu.a, ^= v);
+        $self.cpu.p |= m & 1;
     }};
 }
 
@@ -195,7 +280,7 @@ impl Nes<'_> {
             (4, 6, 1) => addr_mode!(store self addr_of_abs_y self.cpu.a),
             (4, 7, 1) => addr_mode!(store self addr_of_abs_x self.cpu.a),
 
-            (_, _, 1) => {
+            (_, _, 1) | (7, 2, 3) => {
                 let opr = match b {
                     0 => addr_mode!(load self addr_of_indx_indr),
                     1 => addr_mode!(load self addr_of_zp),
@@ -326,6 +411,63 @@ impl Nes<'_> {
                 7 => addr_mode!(load self addr_of_abs_y),
                 _ => unreachable!(),
             }),
+
+            // (4, 2, 3) => { self.fetch_pc(); }, // nop imm
+            (4, 0, 3) => addr_mode!(store self addr_of_indx_indr self.cpu.a & self.cpu.x),
+            (4, 1, 3) => addr_mode!(store self addr_of_zp self.cpu.a & self.cpu.x),
+            (4, 3, 3) => addr_mode!(store self addr_of_abs self.cpu.a & self.cpu.x),
+            // (4, 4, 3) => addr_mode!(store self addr_of_indr_indx self.cpu.a & self.cpu.x),
+            (4, 5, 3) => addr_mode!(store self addr_of_zp_y self.cpu.a & self.cpu.x),
+            // (4, 6, 3) => addr_mode!(store self addr_of_abs_y self.cpu.a & self.cpu.x),
+            // (4, 7, 3) => addr_mode!(store self addr_of_abs_x self.cpu.a & self.cpu.x),
+
+            (0, 0, 3) => slo!(self addr_of_indx_indr),
+            (0, 1, 3) => slo!(self addr_of_zp),
+            (0, 3, 3) => slo!(self addr_of_abs),
+            (0, 4, 3) => slo!(self addr_of_indr_indx),
+            (0, 5, 3) => slo!(self addr_of_zp_x),
+            (0, 6, 3) => slo!(self addr_of_abs_y),
+            (0, 7, 3) => slo!(self addr_of_abs_x),
+
+            (1, 0, 3) => rla!(self addr_of_indx_indr),
+            (1, 1, 3) => rla!(self addr_of_zp),
+            (1, 3, 3) => rla!(self addr_of_abs),
+            (1, 4, 3) => rla!(self addr_of_indr_indx),
+            (1, 5, 3) => rla!(self addr_of_zp_x),
+            (1, 6, 3) => rla!(self addr_of_abs_y),
+            (1, 7, 3) => rla!(self addr_of_abs_x),
+
+            (2, 0, 3) => sre!(self addr_of_indx_indr),
+            (2, 1, 3) => sre!(self addr_of_zp),
+            (2, 3, 3) => sre!(self addr_of_abs),
+            (2, 4, 3) => sre!(self addr_of_indr_indx),
+            (2, 5, 3) => sre!(self addr_of_zp_x),
+            (2, 6, 3) => sre!(self addr_of_abs_y),
+            (2, 7, 3) => sre!(self addr_of_abs_x),
+
+            (3, 0, 3) => rra!(self addr_of_indx_indr),
+            (3, 1, 3) => rra!(self addr_of_zp),
+            (3, 3, 3) => rra!(self addr_of_abs),
+            (3, 4, 3) => rra!(self addr_of_indr_indx),
+            (3, 5, 3) => rra!(self addr_of_zp_x),
+            (3, 6, 3) => rra!(self addr_of_abs_y),
+            (3, 7, 3) => rra!(self addr_of_abs_x),
+
+            (6, 0, 3) => dcp!(self addr_of_indx_indr),
+            (6, 1, 3) => dcp!(self addr_of_zp),
+            (6, 3, 3) => dcp!(self addr_of_abs),
+            (6, 4, 3) => dcp!(self addr_of_indr_indx),
+            (6, 5, 3) => dcp!(self addr_of_zp_x),
+            (6, 6, 3) => dcp!(self addr_of_abs_y),
+            (6, 7, 3) => dcp!(self addr_of_abs_x),
+
+            (7, 0, 3) => isc!(self addr_of_indx_indr),
+            (7, 1, 3) => isc!(self addr_of_zp),
+            (7, 3, 3) => isc!(self addr_of_abs),
+            (7, 4, 3) => isc!(self addr_of_indr_indx),
+            (7, 5, 3) => isc!(self addr_of_zp_x),
+            (7, 6, 3) => isc!(self addr_of_abs_y),
+            (7, 7, 3) => isc!(self addr_of_abs_x),
             _ => todo!("{inst:02x} {a} {b} {c}"),
         }
     }

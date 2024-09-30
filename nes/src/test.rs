@@ -35,6 +35,9 @@ fn run_nestest() {
     loop {
         log.clear();
         ref_log.read_line(&mut log).unwrap();
+
+        if log.is_empty() { break; }
+
         let mut line = log.split_whitespace();
         let pc = u16::from_str_radix(line.next().unwrap(), 16).unwrap();
         let a = u8::from_str_radix(line.next().unwrap(), 16).unwrap();
