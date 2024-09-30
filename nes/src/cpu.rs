@@ -8,6 +8,12 @@ macro_rules! addr_mode {
 }
 
 macro_rules! set_val_nz {
+    ($self: tt $($dest: expr,)+, $val: expr) => {{
+        let val = $val;
+        $($dest = val;)+
+        $self.set_n(val);
+        $self.set_z(val);
+    }};
     ($self: tt $dest: expr, $op: tt $val: expr) => {{
         $dest $op $val;
         $self.set_n($dest);
@@ -85,8 +91,8 @@ impl Nes<'_> {
             // c = 0 nops
             (0 | 2 | 3, 1, 0) => { addr_mode!(load self addr_of_zp); },
             (0, 3, 0) => { addr_mode!(load self addr_of_abs); },
-            (0..=3 | 6 | 7, 5, 0) => { addr_mode!(load self addr_of_zp_x); },
-            (0, 7, 0) => { addr_mode!(load self addr_of_abs_x); },
+            (0..=3 | 6..=7, 5, 0) => { addr_mode!(load self addr_of_zp_x); },
+            (0..=3 | 6..=7, 7, 0) => { addr_mode!(load self addr_of_abs_x); },
 
             (1, 0, 0) => {
                 self.push_u16(self.cpu.pc + 1);
@@ -141,7 +147,7 @@ impl Nes<'_> {
 
                 let inc = self.fetch_pc();
                 if bit == cond & 1 {
-                    self.cpu.pc += inc as u16;
+                    self.cpu.pc += inc as i8 as u16;
                 }
             },
 
@@ -151,6 +157,7 @@ impl Nes<'_> {
             },
             (3, 0, 0) => self.cpu.pc = self.pop_u16() + 1, // rts
 
+            (4, 0, 0) => { self.fetch_pc(); },
             (4, 1, 0) => addr_mode!(store self addr_of_zp self.cpu.y),
             (4, 3, 0) => addr_mode!(store self addr_of_abs self.cpu.y),
             (4, 5, 0) => addr_mode!(store self addr_of_zp_x self.cpu.y),
@@ -256,6 +263,8 @@ impl Nes<'_> {
 
             (6, 2, 2) => set_val_nz!(self self.cpu.x, -= 1),
             (7, 2, 2) => {}, // 0xea nop
+            (_, 6, 2) => {},
+
             (_, _, 2) => {
                 let addr = match b {
                     0 | 4 => todo!("jam"),
@@ -306,7 +315,18 @@ impl Nes<'_> {
                 }
             },
 
-            _ => todo!("{a} {b} {c}"),
+            (5, _, 3) => set_val_nz!(self self.cpu.a, self.cpu.x,, match b {
+                0 => addr_mode!(load self addr_of_indx_indr),
+                1 => addr_mode!(load self addr_of_zp),
+                2 => self.fetch_pc(),
+                3 => addr_mode!(load self addr_of_abs),
+                4 => addr_mode!(load self addr_of_indr_indx),
+                5 => addr_mode!(load self addr_of_zp_y),
+                // 6 => addr_mode!(load self addr_of_abs_y),
+                7 => addr_mode!(load self addr_of_abs_y),
+                _ => unreachable!(),
+            }),
+            _ => todo!("{inst:02x} {a} {b} {c}"),
         }
     }
 
