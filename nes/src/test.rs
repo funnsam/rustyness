@@ -53,7 +53,8 @@ fn run_nestest() {
         assert_eq_hex!(p, nes.cpu.p, "p on cycle {cy}");
         assert_eq_hex!(s, nes.cpu.s, "s on cycle {cy}");
         assert_eq_hex!(pc, nes.cpu.pc, "pc on cycle {cy}");
+        assert_eq!(cy, nes.cycles_ahead, "cycle count");
 
-        nes.step();
+        nes.step_everything();
     }
 }

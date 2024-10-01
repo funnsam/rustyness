@@ -11,6 +11,8 @@ pub struct Nes<'a> {
     cart: &'a mut dyn cart::Cartridge,
 
     last_read: u8,
+    cycles_ahead: usize,
+    fetched_bytes: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -42,6 +44,8 @@ impl<'a> Nes<'a> {
             cart,
 
             last_read: 0,
+            cycles_ahead: 7,
+            fetched_bytes: 0,
         }
     }
 
@@ -53,7 +57,17 @@ impl<'a> Nes<'a> {
     fn step_not_cpu(&mut self) {
     }
 
+    fn elapse_cycles(&mut self, cy: usize) {
+        self.cycles_ahead += cy;
+
+        for _ in 0..cy {
+            self.step_not_cpu();
+        }
+    }
+
     fn load(&mut self, addr: u16) -> u8 {
+        self.elapse_cycles(1);
+
         if let Ok(v) = self._load(addr) {
             self.last_read = v;
             v
@@ -79,6 +93,8 @@ impl<'a> Nes<'a> {
     }
 
     fn store(&mut self, addr: u16, val: u8) {
+        self.elapse_cycles(1);
+
         _ = self._store(addr, val);
     }
 

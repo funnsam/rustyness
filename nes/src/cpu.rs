@@ -26,6 +26,7 @@ macro_rules! dcp {
         let addr = $self.$name();
         let m = $self.load(addr) - 1;
         $self.store(addr, m);
+        $self.elapse_cycles(1);
         $self.set_n($self.cpu.a - m);
         $self.set_z($self.cpu.a - m);
         $self.cpu.p &= 0xfe;
@@ -38,6 +39,7 @@ macro_rules! isc {
         let addr = $self.$name();
         let m = $self.load(addr) + 1;
         $self.store(addr, m);
+        $self.elapse_cycles(1);
 
         let res = $self.cpu.a as i8 as i16 - m as i8 as i16 - (1 - ($self.cpu.p & 1)) as i16;
         $self.cpu.p &= 0xbe;
@@ -57,6 +59,7 @@ macro_rules! rla {
         $self.cpu.p &= 0xfe;
         $self.cpu.p |= m >> 7;
         $self.store(addr, v);
+        $self.elapse_cycles(1);
 
         set_val_nz!($self $self.cpu.a, &= v);
     }};
@@ -68,6 +71,7 @@ macro_rules! rra {
         let m = $self.load(addr);
         let v = ($self.cpu.p << 7) | (m >> 1);
         $self.store(addr, v);
+        $self.elapse_cycles(1);
 
         let (a, c1) = $self.cpu.a.overflowing_add(v);
         let (res, c2) = a.overflowing_add(m & 1);
@@ -84,6 +88,7 @@ macro_rules! slo {
         let addr = $self.$name();
         let m = $self.load(addr);
         $self.store(addr, m << 1);
+        $self.elapse_cycles(1);
 
         $self.cpu.a |= m << 1;
         $self.set_n($self.cpu.a);
@@ -100,6 +105,7 @@ macro_rules! sre {
         let m = $self.load(addr);
         let v = m >> 1;
         $self.store(addr, v);
+        $self.elapse_cycles(1);
 
         set_val_nz!($self $self.cpu.a, ^= v);
         $self.cpu.p |= m & 1;
@@ -110,6 +116,7 @@ impl Nes<'_> {
     // aka (zp, x)
     fn addr_of_indx_indr(&mut self) -> u16 {
         let ind = self.fetch_pc() + self.cpu.x;
+        self.elapse_cycles(1);
         self.load(ind as u16) as u16 | (self.load((ind + 1) as u16) as u16) << 8
     }
 
@@ -121,29 +128,55 @@ impl Nes<'_> {
         self.fetch_u16()
     }
 
-    // aka (zp), y
-    fn addr_of_indr_indx(&mut self) -> u16 {
-        let ind = self.fetch_pc();
-        (self.load(ind as u16) as u16 | (self.load((ind + 1) as u16) as u16) << 8) + self.cpu.y as u16
-    }
-
     fn addr_of_zp_x(&mut self) -> u16 {
         let off = self.fetch_pc();
+        self.elapse_cycles(1);
         (off + self.cpu.x) as u16
     }
 
     fn addr_of_zp_y(&mut self) -> u16 {
         let off = self.fetch_pc();
+        self.elapse_cycles(1);
         (off + self.cpu.y) as u16
+    }
+
+    // aka (zp), y
+    fn addr_of_indr_indx(&mut self) -> u16 {
+        let ind = self.fetch_pc();
+        let a = self.load(ind as u16) as u16 | (self.load((ind + 1) as u16) as u16) << 8;
+        self.elapse_cycles(((a as u8).overflowing_add(self.cpu.y).1) as usize);
+        a + self.cpu.y as u16
     }
 
     fn addr_of_abs_x(&mut self) -> u16 {
         let off = self.fetch_u16();
+        self.elapse_cycles(((off as u8).overflowing_add(self.cpu.x).1) as usize);
         off + self.cpu.x as u16
     }
 
     fn addr_of_abs_y(&mut self) -> u16 {
         let off = self.fetch_u16();
+        self.elapse_cycles(((off as u8).overflowing_add(self.cpu.y).1) as usize);
+        off + self.cpu.y as u16
+    }
+
+    // aka (zp), y
+    fn addr_of_indr_indx_store(&mut self) -> u16 {
+        let ind = self.fetch_pc();
+        let a = self.load(ind as u16) as u16 | (self.load((ind + 1) as u16) as u16) << 8;
+        self.elapse_cycles(1);
+        a + self.cpu.y as u16
+    }
+
+    fn addr_of_abs_x_store(&mut self) -> u16 {
+        let off = self.fetch_u16();
+        self.elapse_cycles(1);
+        off + self.cpu.x as u16
+    }
+
+    fn addr_of_abs_y_store(&mut self) -> u16 {
+        let off = self.fetch_u16();
+        self.elapse_cycles(1);
         off + self.cpu.y as u16
     }
 
@@ -182,6 +215,7 @@ impl Nes<'_> {
             (1, 0, 0) => {
                 self.push_u16(self.cpu.pc + 1);
                 self.cpu.pc = self.addr_of_abs();
+                self.elapse_cycles(1);
             },
             (1, 1, 0) => { // bit zp
                 let m = addr_mode!(load self addr_of_zp);
@@ -197,9 +231,15 @@ impl Nes<'_> {
             },
 
             (0, 2, 0) => self.push(self.cpu.p | 0x10),
-            (1, 2, 0) => self.cpu.p = (self.pop() & 0xef) | 0x20,
+            (1, 2, 0) => {
+                self.cpu.p = (self.pop() & 0xef) | 0x20;
+                self.elapse_cycles(1);
+            },
             (2, 2, 0) => self.push(self.cpu.a),
-            (3, 2, 0) => set_val_nz!(self self.cpu.a, = self.pop()),
+            (3, 2, 0) => {
+                set_val_nz!(self self.cpu.a, = self.pop());
+                self.elapse_cycles(1);
+            },
             (4, 2, 0) => set_val_nz!(self self.cpu.y, -= 1),
             (5, 2, 0) => set_val_nz!(self self.cpu.y, = self.cpu.a),
             (6, 2, 0) => set_val_nz!(self self.cpu.y, += 1),
@@ -230,8 +270,9 @@ impl Nes<'_> {
                     _ => unreachable!()
                 }) & 1;
 
-                let inc = self.fetch_pc();
+                let inc = self.fetch_pc() as i8 as u16;
                 if bit == cond & 1 {
+                    self.elapse_cycles(1 + (self.cpu.pc >> 8 != (self.cpu.pc + inc) >> 8) as usize);
                     self.cpu.pc += inc as i8 as u16;
                 }
             },
@@ -239,8 +280,12 @@ impl Nes<'_> {
             (2, 0, 0) => { // rti
                 self.cpu.p = self.pop() | 0x20;
                 self.cpu.pc = self.pop_u16();
+                self.elapse_cycles(1);
             },
-            (3, 0, 0) => self.cpu.pc = self.pop_u16() + 1, // rts
+            (3, 0, 0) => {
+                self.cpu.pc = self.pop_u16() + 1;
+                self.elapse_cycles(2);
+            },
 
             (4, 0, 0) => { self.fetch_pc(); },
             (4, 1, 0) => addr_mode!(store self addr_of_zp self.cpu.y),
@@ -275,10 +320,10 @@ impl Nes<'_> {
             (4, 0, 1) => addr_mode!(store self addr_of_indx_indr self.cpu.a),
             (4, 1, 1) => addr_mode!(store self addr_of_zp self.cpu.a),
             (4, 3, 1) => addr_mode!(store self addr_of_abs self.cpu.a),
-            (4, 4, 1) => addr_mode!(store self addr_of_indr_indx self.cpu.a),
+            (4, 4, 1) => addr_mode!(store self addr_of_indr_indx_store self.cpu.a),
             (4, 5, 1) => addr_mode!(store self addr_of_zp_x self.cpu.a),
-            (4, 6, 1) => addr_mode!(store self addr_of_abs_y self.cpu.a),
-            (4, 7, 1) => addr_mode!(store self addr_of_abs_x self.cpu.a),
+            (4, 6, 1) => addr_mode!(store self addr_of_abs_y_store self.cpu.a),
+            (4, 7, 1) => addr_mode!(store self addr_of_abs_x_store self.cpu.a),
 
             (_, _, 1) | (7, 2, 3) => {
                 let opr = match b {
@@ -357,7 +402,7 @@ impl Nes<'_> {
                     2 => None,
                     3 => Some(self.addr_of_abs()),
                     5 => Some(self.addr_of_zp_x()),
-                    7 => Some(self.addr_of_abs_x()),
+                    7 => Some(self.addr_of_abs_x_store()),
                     _ => unreachable!(),
                 };
                 let m = addr.map_or(self.cpu.a, |addr| self.load(addr));
@@ -394,6 +439,7 @@ impl Nes<'_> {
                 self.set_z(v);
 
                 if let Some(addr) = addr {
+                    self.elapse_cycles(1);
                     self.store(addr, v);
                 } else {
                     self.cpu.a = v;
@@ -470,17 +516,23 @@ impl Nes<'_> {
             (7, 7, 3) => isc!(self addr_of_abs_x),
             _ => todo!("{inst:02x} {a} {b} {c}"),
         }
+
+        if core::mem::take(&mut self.fetched_bytes) == 1 {
+            self.load(self.cpu.pc);
+        }
     }
 
     fn fetch_pc(&mut self) -> u8 {
         let ret = self.load(self.cpu.pc);
         self.cpu.pc += 1;
+        self.fetched_bytes += 1;
         ret
     }
 
     fn fetch_u16(&mut self) -> u16 {
         let ret = self.load_u16(self.cpu.pc);
         self.cpu.pc += 2;
+        self.fetched_bytes += 2;
         ret
     }
 
