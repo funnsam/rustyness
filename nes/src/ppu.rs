@@ -39,15 +39,15 @@ pub type CiRam = [u8; 2048];
 
 impl Nes<'_> {
     pub(crate) fn step_ppu(&mut self) {
-        self.ppu.scanline = (self.ppu.scanline + 1) % 262;
+        self.ppu.scanline += (self.ppu.cycle == 340) as usize;
         self.ppu.cycle = (self.ppu.cycle + 1) % 341;
 
-        if self.ppu.frame_odd && self.ppu.scanline == 261 && self.ppu.cycle == 339 {
+        if (self.ppu.frame_odd && self.ppu.scanline == 261 && self.ppu.cycle == 339) || self.ppu.scanline == 262 {
             self.ppu.scanline = 0;
             self.ppu.cycle = 0;
-        }
 
-        self.ppu.frame_odd ^= self.ppu.scanline == 0 && self.ppu.cycle == 0;
+            self.ppu.frame_odd ^= true;
+        }
 
         match (self.ppu.scanline, self.ppu.cycle) {
             (0..=239 | 261, 0) => {}, // idle cycle
