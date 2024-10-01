@@ -1,11 +1,13 @@
 mod cart;
 mod cpu;
+mod ppu;
 
 #[cfg(test)]
 mod test;
 
 pub struct Nes<'a> {
-    cpu: Cpu,
+    cpu: cpu::Cpu,
+    ppu: ppu::Ppu,
 
     iram: [u8; 0x800],
     cart: &'a mut dyn cart::Cartridge,
@@ -15,30 +17,14 @@ pub struct Nes<'a> {
     fetched_bytes: usize,
 }
 
-#[derive(Debug, Clone)]
-struct Cpu {
-    a: u8,
-    x: u8,
-    y: u8,
-    pc: u16,
-    s: u8,
-    p: u8,
-}
-
 impl<'a> Nes<'a> {
     pub fn new(cart: &'a mut dyn cart::Cartridge, start: Option<u16>) -> Self {
         let fffc = cart.load(0xfffc).unwrap();
         let fffd = cart.load(0xfffd).unwrap();
 
         Self {
-            cpu: Cpu {
-                a: 0,
-                x: 0,
-                y: 0,
-                pc: start.unwrap_or(((fffd as u16) << 8) | (fffc as u16)),
-                s: 0xfd,
-                p: 0x24,
-            },
+            cpu: cpu::Cpu::new(start, fffc, fffd),
+            ppu: ppu::Ppu::new(),
 
             iram: [0; 0x800],
             cart,
@@ -50,11 +36,17 @@ impl<'a> Nes<'a> {
     }
 
     pub fn step(&mut self) {
-        // TODO: handle cycle count things here
+        self.cycles_ahead -= 1;
+
+        if self.cycles_ahead != 0 {
+            return;
+        }
+
         self.step_everything();
     }
 
     fn step_not_cpu(&mut self) {
+        for _ in 0..3 { self.step_ppu(); }
     }
 
     fn elapse_cycles(&mut self, cy: usize) {

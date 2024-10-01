@@ -1,5 +1,28 @@
 use super::*;
 
+#[derive(Debug, Clone)]
+pub(crate) struct Cpu {
+    pub(crate) a: u8,
+    pub(crate) x: u8,
+    pub(crate) y: u8,
+    pub(crate) pc: u16,
+    pub(crate) s: u8,
+    pub(crate) p: u8,
+}
+
+impl Cpu {
+    pub fn new(start: Option<u16>, fffc: u8, fffd: u8) -> Self {
+        Self {
+            a: 0,
+            x: 0,
+            y: 0,
+            pc: start.unwrap_or(((fffd as u16) << 8) | (fffc as u16)),
+            s: 0xfd,
+            p: 0x24,
+        }
+    }
+}
+
 macro_rules! addr_mode {
     ($call: tt $self: tt $name: ident $($rest: tt)*) => {{
         let addr = $self.$name();

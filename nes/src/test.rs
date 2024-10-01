@@ -23,6 +23,9 @@ fn run_nestest() {
         }
 
         fn store(&mut self, _addr: u16, _data: u8) -> Result<(), ()> { Err(()) }
+
+        fn vmem_load(&mut self, _ciram: &crate::ppu::CiRam, addr: u16) -> u8 { addr as u8 }
+        fn vmem_store(&mut self, _ciram: &mut crate::ppu::CiRam, _addr: u16, _data: u8) {}
     }
 
     let rom = std::fs::read("../tests/nestest.nes").unwrap();
@@ -46,6 +49,8 @@ fn run_nestest() {
         let p = u8::from_str_radix(line.next().unwrap(), 16).unwrap();
         let s = u8::from_str_radix(line.next().unwrap(), 16).unwrap();
         let cy = line.next().unwrap().parse::<usize>().unwrap();
+        let ppu_x = line.next().unwrap().parse::<usize>().unwrap();
+        let ppu_y = line.next().unwrap().parse::<usize>().unwrap();
 
         assert_eq_hex!(a, nes.cpu.a, "a on cycle {cy}");
         assert_eq_hex!(x, nes.cpu.x, "x on cycle {cy}");
@@ -54,6 +59,8 @@ fn run_nestest() {
         assert_eq_hex!(s, nes.cpu.s, "s on cycle {cy}");
         assert_eq_hex!(pc, nes.cpu.pc, "pc on cycle {cy}");
         assert_eq!(cy, nes.cycles_ahead, "cycle count");
+        assert_eq!(ppu_x, nes.ppu.scanline, "scanline on cpu cycle {cy}");
+        assert_eq!(ppu_y, nes.ppu.cycle, "ppu scanline cycle on cpu cycle {cy}");
 
         nes.step_everything();
     }
