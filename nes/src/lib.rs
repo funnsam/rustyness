@@ -1,6 +1,6 @@
-mod cart;
-mod cpu;
-mod ppu;
+pub mod cart;
+pub mod cpu;
+pub mod ppu;
 
 #[cfg(test)]
 mod test;

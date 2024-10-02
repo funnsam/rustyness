@@ -8,6 +8,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+nes = { version = "0.1.0", path = "nes" }
 
 [profile.dev]
 overflow-checks = false
