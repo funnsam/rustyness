@@ -77,7 +77,7 @@ impl<'a> Nes<'a> {
     fn _load(&mut self, addr: u16) -> Result<u8, ()> {
         match addr {
             0x0000..=0x1fff => Ok(self.iram[addr as usize & 0x7ff]),
-            0x2000..=0x3fff => Err(()), // PPU regs
+            0x2000..=0x3fff => self.load_ppu_mmio(addr), // PPU regs
             0x4000..=0x4017 => Err(()), // APU & IO
             0x4018..=0x401f => Err(()), // APU & IO test mode
             0x4020..=0xffff => self.cart.load(addr),
@@ -98,7 +98,7 @@ impl<'a> Nes<'a> {
     fn _store(&mut self, addr: u16, val: u8) -> Result<(), ()> {
         match addr {
             0x0000..=0x1fff => Ok(self.iram[addr as usize & 0x7ff] = val),
-            0x2000..=0x3fff => Err(()), // PPU regs
+            0x2000..=0x3fff => Ok(self.store_ppu_mmio(addr, val)), // PPU regs
             0x4000..=0x4017 => Err(()), // APU & IO
             0x4018..=0x401f => Err(()), // APU & IO test mode
             0x4020..=0xffff => self.cart.store(addr, val),

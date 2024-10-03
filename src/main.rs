@@ -1,27 +1,3 @@
-/*
-mod ines;
-
-fn main() {
-    let file = std::fs::read(std::env::args().nth(1).unwrap()).unwrap();
-    let ines = ines::InesFile::new(&file).unwrap();
-
-    println!("{}", ines.mapper_id);
-    println!("{}", ines.submapper);
-    println!("{}", ines.prg_ram_size);
-    println!("{}", ines.chr_ram_size);
-    println!("{}", ines.eeprom_size);
-    println!("{}", ines.vert_mirror);
-    println!("{}", ines.alt_nt_layout);
-
-    let mut cart = ines::InesMapper::new(ines);
-    let mut nes = nes::Nes::new(&mut cart, None);
-
-    for _ in 0..1000000 {
-        nes.step();
-    }
-}
-*/
-
 use std::{num::NonZeroU32, time::Instant};
 
 use glow::HasContext;
@@ -41,6 +17,10 @@ use imgui_winit_support::{
 };
 use raw_window_handle::HasWindowHandle;
 
+struct WindowState {
+    dummy: bool,
+}
+
 fn main() {
     // Common setup for creating a winit window and imgui context, not specifc
     // to this renderer at all except that glutin is used to create the window
@@ -56,6 +36,10 @@ fn main() {
         .expect("failed to create renderer");
 
     let mut last_frame = Instant::now();
+
+    let mut ws = WindowState {
+        dummy: false,
+    };
 
     // Standard winit event loop
     #[allow(deprecated)]
@@ -86,7 +70,7 @@ fn main() {
                 }
 
                 let ui = imgui_context.frame();
-                draw_frame(&ui);
+                draw_frame(&mut ws, &ui);
 
                 winit_platform.prepare_render(ui, &window);
                 let draw_data = imgui_context.render();
@@ -127,9 +111,26 @@ fn main() {
     .expect("EventLoop error");
 }
 
-fn draw_frame(ui: &imgui::Ui) {
+fn draw_frame(state: &mut WindowState, ui: &imgui::Ui) {
+    ui.main_menu_bar(|| {
+        ui.menu("File", || {
+            if ui.menu_item("Exit") {
+                std::process::exit(0);
+            }
+        });
+        ui.menu("Window", || {
+            if ui.menu_item("Dummy") {
+                state.dummy ^= true;
+            }
+        });
+    });
+
     ui.window("Screen").build(|| {
     });
+
+    if state.dummy {
+        ui.window("Dummy").build(|| {});
+    }
 }
 
 fn create_window() -> (
