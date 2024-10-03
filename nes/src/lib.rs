@@ -6,11 +6,11 @@ pub mod ppu;
 mod test;
 
 pub struct Nes<'a> {
-    cpu: cpu::Cpu,
-    ppu: ppu::Ppu,
+    pub cpu: cpu::Cpu,
+    pub ppu: ppu::Ppu,
 
-    iram: [u8; 0x800],
-    cart: &'a mut dyn cart::Cartridge,
+    pub iram: [u8; 0x800],
+    pub cart: &'a mut dyn cart::Cartridge,
 
     last_read: u8,
     cycles_ahead: usize,

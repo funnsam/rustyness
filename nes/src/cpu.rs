@@ -1,13 +1,13 @@
 use super::*;
 
 #[derive(Debug, Clone)]
-pub(crate) struct Cpu {
-    pub(crate) a: u8,
-    pub(crate) x: u8,
-    pub(crate) y: u8,
-    pub(crate) pc: u16,
-    pub(crate) s: u8,
-    pub(crate) p: u8,
+pub struct Cpu {
+    pub a: u8,
+    pub x: u8,
+    pub y: u8,
+    pub pc: u16,
+    pub s: u8,
+    pub p: u8,
 }
 
 impl Cpu {

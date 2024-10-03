@@ -1,7 +1,7 @@
 use super::*;
 
 #[derive(Debug, Clone)]
-pub(crate) struct Ppu {
+pub struct Ppu {
     pub scanline: usize,
     pub cycle: usize,
 
@@ -65,5 +65,8 @@ impl Nes<'_> {
             (240..=260, _) => {}, // idle
             _ => unreachable!(),
         }
+    }
+
+    pub(crate) fn write_mmio(&mut self, addr: u16, data: u8) {
     }
 }
